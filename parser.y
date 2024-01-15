@@ -6,8 +6,9 @@
 #include<cstdlib>
 #include<cstring>
 #include<cmath>
-#define YYSTYPE SymbolInfo*
+//#define YYSTYPE SymbolInfo*
 #include "2005036_SymbolTable.cpp"
+#include "2005036_ParseTree.h"
 
 
 
@@ -41,10 +42,21 @@ void yyerror(char *s)
 
 %}
 
+%union {
+    SymbolInfo* symbolInfo;
+    ParseTree* parseTree;
+}
 
+%type <parseTree> start program unit var_declaration func_declaration func_definition
+%type <parseTree> type_specifier parameter_list compound_statement statements declaration_list
+%type <parseTree> statement expression_statement variable logic_expression rel_expression 
+%type <parseTree> simple_expression term unary_expression factor argument_list arguments
+
+
+%token <symbolInfo> CONST_INT CONST_FLOAT ADDOP MULOP RELOP LOGICOP BITOP ID
 %token IF ELSE FOR WHILE DO BREAK INT CHAR FLOAT DOUBLE VOID RETURN SWITCH CASE DEFAULT CONTINUE
-%token CONST_INT CONST_FLOAT CONST_CHAR ADDOP MULOP INCOP RELOP ASSIGNOP LOGICOP BITOP DECOP PRINTLN
-%token NOT LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON ID MULTI_LINE_STRING SINGLE_LINE_STRING
+%token CONST_CHAR  INCOP  ASSIGNOP  DECOP PRINTLN
+%token NOT LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON MULTI_LINE_STRING SINGLE_LINE_STRING
 
 
 %%
@@ -52,17 +64,25 @@ void yyerror(char *s)
 start : 
 		program
 		{
-			//write your code in this block in all the similar blocks below
+			ParseTree* newNode = new ParseTree("start : program", @$.first_line, @$.last_line);
+			newNode->addLeftChild($1);
+
 			cout << "start : program" << endl;
 		}
 		;
 
 program : program unit
 		{
+			ParseTree* newNode = new ParseTree("program : program unit", @$.first_line, @$.last_line);
+			newNode->addLeftChild($1);
+
 			cout << "program : program unit" << endl;
 		}
 		| unit
 		{
+			ParseTree* newNode = new ParseTree("program : unit", @$.first_line, @$.last_line);
+			newNode->addLeftChild($1);
+
 			cout << "program : unit" << endl;
 		}
 		;
