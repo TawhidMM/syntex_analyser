@@ -62,9 +62,12 @@ public:
     }
 
     friend ostream& operator<<(ostream& os, const ParseTree& obj) {
-    
-        os << obj.node << "\t" << "<Line: " << 
-            obj.startLine << "-" << obj.finishLine << ">";
+        os << obj.node << " \t" << "<Line: " << obj.startLine; 
+
+        if(obj.leftChild != nullptr)
+            os << "-" << obj.finishLine;
+             
+        os << ">";
 
         return os;
     }
