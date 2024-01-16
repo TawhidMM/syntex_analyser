@@ -1,5 +1,5 @@
 #include<iostream>
-#include<string>
+#include<fstream>
 
 using namespace std;
 
@@ -39,26 +39,26 @@ public:
     }
 
 
-    void print(){
+    void print(ofstream& fout){
         int rootSpace = 0;
-        printTree(this, rootSpace);
+        printTree(this, rootSpace, fout);
     }
 
-    void printTree(ParseTree* root, int spaces){
-        printSpaces(spaces);
-        cout << *root << endl;
+    void printTree(ParseTree* root, int spaces, ofstream& fout){
+        printSpaces(spaces, fout);
+        fout << *root << endl;
 
         ParseTree* child = root->getChild();
 
         while(child != nullptr){
-            printTree(child, spaces + 1);
+            printTree(child, spaces + 1, fout);
             child = child->getSibling();
         }
     }
 
-    void printSpaces(int spaces){
+    void printSpaces(int spaces, ofstream& fout){
         for(int i = 0; i < spaces; i++)
-            cout << " ";
+            fout << " ";
     }
 
     friend ostream& operator<<(ostream& os, const ParseTree& obj) {
