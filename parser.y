@@ -1,26 +1,25 @@
-%locations
-
 %{
 #include<iostream>
 #include <fstream>
 #include<cstdlib>
 #include<cstring>
 #include<cmath>
-//#define YYSTYPE SymbolInfo*
 #include "2005036_SymbolTable.cpp"
-#include "2005036_ParseTree.h"
-
-
+#include "2005036_ParseTree.cpp"
 
 using namespace std;
+
 
 int yyparse(void);
 int yylex(void);
 
+extern int yylineno;
 extern FILE *yyin;
-FILE *fp, *fp2, *fp3;
+FILE *fp;
 ofstream log_out;
 ofstream tree_out;
+ofstream error_out;
+
 
 int BUCKET_NUM = 11;
 SymbolTable *table = new SymbolTable(BUCKET_NUM);
@@ -31,16 +30,26 @@ void insertSymbol(SymbolInfo* symbolInfo, string type){
 	symbolInfo->setDataType(dataType);
 	symbolInfo->setType(type);
 
-	table->insert(symbolInfo);
+	if(!table->insert(symbolInfo)){
+		string errorMsg = "Redefinition of variable '"+ symbolInfo->getName() + "'"
+		yyerror(errorMsg);
+	}
+	
 }
 
+bool declared(SymbolInfo* symbolInfo){
+	return table->lookup(symbolInfo->getName());
+}
 
 void yyerror(char *s)
 {
-	//write your code
+	//Line# 3: Syntax error at parameter list of function definition
+	error_out << "Line# " << yylineno << ": " << s << endl;
 }
 
 %}
+
+%locations
 
 %union {
     SymbolInfo* symbolInfo;
@@ -48,15 +57,16 @@ void yyerror(char *s)
 }
 
 %type <parseTree> start program unit var_declaration func_declaration func_definition
-%type <parseTree> type_specifier parameter_list compound_statement statements declaration_list
-%type <parseTree> statement expression_statement variable logic_expression rel_expression 
-%type <parseTree> simple_expression term unary_expression factor argument_list arguments
-
+ 		type_specifier parameter_list compound_statement statements declaration_list
+ 		statement expression_statement variable logic_expression rel_expression 
+		simple_expression term unary_expression factor argument_list arguments expression
 
 %token <symbolInfo> CONST_INT CONST_FLOAT ADDOP MULOP RELOP LOGICOP BITOP ID
-%token IF ELSE FOR WHILE DO BREAK INT CHAR FLOAT DOUBLE VOID RETURN SWITCH CASE DEFAULT CONTINUE
-%token CONST_CHAR  INCOP  ASSIGNOP  DECOP PRINTLN
-%token NOT LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON MULTI_LINE_STRING SINGLE_LINE_STRING
+
+%token	IF ELSE FOR WHILE DO BREAK INT CHAR FLOAT DOUBLE VOID RETURN 
+		SWITCH CASE DEFAULT CONTINUE CONST_CHAR INCOP ASSIGNOP DECOP 
+		PRINTLN NOT LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON 
+		MULTI_LINE_STRING SINGLE_LINE_STRING
 
 
 %%
@@ -64,8 +74,10 @@ void yyerror(char *s)
 start : 
 		program
 		{
-			ParseTree* newNode = new ParseTree("start : program", @$.first_line, @$.last_line);
-			newNode->addLeftChild($1);
+			$$ = new ParseTree("start : program", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
+			$$->print(tree_out);
 
 			cout << "start : program" << endl;
 		}
@@ -73,15 +85,18 @@ start :
 
 program : program unit
 		{
-			ParseTree* newNode = new ParseTree("program : program unit", @$.first_line, @$.last_line);
-			newNode->addLeftChild($1);
+			$1->addSibling($2);
+			
+			$$ = new ParseTree("program : program unit", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
 
 			cout << "program : program unit" << endl;
 		}
+
 		| unit
 		{
-			ParseTree* newNode = new ParseTree("program : unit", @$.first_line, @$.last_line);
-			newNode->addLeftChild($1);
+			$$ = new ParseTree("program : unit", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
 
 			cout << "program : unit" << endl;
 		}
@@ -90,14 +105,25 @@ program : program unit
 unit : 
 		var_declaration
 		{
+			$$ = new ParseTree("unit : var_declaration", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "unit : var_declaration" << endl;
 		}
+
 		| func_declaration
 		{
+			$$ = new ParseTree("unit : func_declaration", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "unit : func_declaration" << endl;
 		}
+
 		| func_definition
 		{
+			$$ = new ParseTree("unit : func_definition", @$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "unit : func_definition" << endl;
 		}
 		;
@@ -105,17 +131,45 @@ unit :
 func_declaration : 
 		type_specifier ID LPAREN parameter_list RPAREN SEMICOLON
 		{
-			//if(table->lookup($2->getName()) != NULL)
-			//table->insert($2);
+			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @5.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : :" , @6.last_line, 0);
+
+			$1->addSibling(id);
+			id->addSibling(lparen);
+			lparen->addSibling($4);
+			$4->addSibling(rparen);
+			rparen->addSibling(semicolon);
+
+			$$ = new ParseTree("func_declaration : type_specifier ID LPAREN parameter_list RPAREN SEMICOLON", 
+									@$.first_line, @$.last_line);
+			
+			$$->addLeftChild($1);
+
+
 			insertSymbol($2, "FUNCTION");
 
 			cout << "func_declaration : type_specifier ID LPAREN" << 
 				"parameter_list RPAREN SEMICOLON" << endl;
 		}
+
 		| type_specifier ID LPAREN RPAREN SEMICOLON
 		{
-			//if(table->lookup($2->getName()) != NULL)
-			//table->insert($2);
+			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : :" , @5.last_line, 0);
+
+			$1->addSibling(id);
+			id->addSibling(lparen);
+			lparen->addSibling(rparen);
+			rparen->addSibling(semicolon);
+
+			$$ = new ParseTree("func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			insertSymbol($2, "FUNCTION");
 			
 			cout << "func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON" << endl;
@@ -125,17 +179,41 @@ func_declaration :
 func_definition : 
 		type_specifier ID LPAREN parameter_list RPAREN compound_statement
 		{
-			//if(table->lookup($2->getName()) != NULL)
-			//table->insert($2);
+			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @5.last_line, 0);
+			
+			$1->addSibling(id);
+			id->addSibling(lparen);
+			lparen->addSibling($4);
+			$4->addSibling(rparen);
+			rparen->addSibling($6);
+
+			$$ = new ParseTree("func_definition : type_specifier ID LPAREN parameter_list RPAREN compound_statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			insertSymbol($2, "FUNCTION");
 
 			cout << "func_definition : type_specifier ID LPAREN parameter_list" << 
 				"RPAREN compound_statement" << endl;
 		}
+
 		| type_specifier ID LPAREN RPAREN compound_statement
 		{
-			//if(table->lookup($2->getName()) != NULL)
-			//table->insert($2);
+			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
+			
+			$1->addSibling(id);
+			id->addSibling(lparen);
+			lparen->addSibling(rparen);
+			rparen->addSibling($5);
+
+			$$ = new ParseTree("func_definition : type_specifier ID LPAREN RPAREN compound_statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			insertSymbol($2, "FUNCTION");
 			
 			cout << "func_definition : type_specifier ID LPAREN RPAREN compound_statement" << endl;
@@ -146,26 +224,57 @@ func_definition :
 parameter_list  : 
 		parameter_list COMMA type_specifier ID
 		{
-			//if(table->lookup($4->getName()) != NULL)
-			//table->insert($4);
+			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
+			ParseTree* id = new ParseTree("ID : " + $4->getName(), @4.last_line, 0);
+			
+			$1->addSibling(comma);
+			comma->addSibling($3);
+			$3->addSibling(id);
+			
+			$$ = new ParseTree("parameter_list : parameter_list COMMA type_specifier ID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
+
 			insertSymbol($4, "VARIABLE");
 			
 			cout << "parameter_list : parameter_list COMMA type_specifier ID" << endl;
 		}
+
 		| parameter_list COMMA type_specifier
 		{
+			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
+			
+			$1->addSibling(comma);
+			comma->addSibling($3);
+			
+			$$ = new ParseTree("parameter_list : parameter_list COMMA type_specifier", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "parameter_list : parameter_list COMMA type_specifier" << endl;
 		}
+
  		| type_specifier ID
 		{
-			//if(table->lookup($2->getName()) != NULL)
-			//table->insert($2);
+			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
+			$1->addSibling(id);
+			
+			$$ = new ParseTree("parameter_list : type_specifier ID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			insertSymbol($2, "VARIABLE");
 			
 			cout << "parameter_list : type_specifier ID" << endl;
 		}
+
 		| type_specifier
 		{
+			$$ = new ParseTree("parameter_list : type_specifier", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "parameter_list : type_specifier" << endl;
 		}
  		;
@@ -178,13 +287,33 @@ compound_statement :
 		}
 		statements RCURL
 		{
+			ParseTree* lcurl = new ParseTree("LCURL : {", @1.last_line, 0);
+			ParseTree* rcurl = new ParseTree("RCURL : }", @4.last_line, 0);
+			
+			lcurl->addSibling($3);
+			$3->addSibling(rcurl);
+			
+			$$ = new ParseTree("compound_statement : LCURL statements RCURL", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(lcurl);
+			
 			cout << "compound_statement : LCURL statements RCURL" << endl;
 
 			table->printAllScopeTables();
 			table->exitScope();
 		}
+
 		| LCURL RCURL
 		{
+			ParseTree* lcurl = new ParseTree("LCURL : {", @1.last_line, 0);
+			ParseTree* rcurl = new ParseTree("RCURL : }", @2.last_line, 0);
+			
+			lcurl->addSibling(rcurl);
+			
+			$$ = new ParseTree("compound_statement : LCURL RCURL", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(lcurl);
+			
 			cout << "compound_statement : LCURL RCURL" << endl;
 		}
 		;
@@ -192,7 +321,15 @@ compound_statement :
 var_declaration : 
 		type_specifier declaration_list SEMICOLON
 		{
-			//fprintf(fp2, "Line# %d: Token <SEMICOLON> Lexeme ; found\n", @1.last_line);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;" , @3.last_line, 0);
+			
+			$1->addSibling($2);
+			$2->addSibling(semicolon);
+			
+			$$ = new ParseTree("var_declaration : type_specifier declaration_list SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "var_declaration : type_specifier declaration_list SEMICOLON" << endl;
 		}
  		;
@@ -200,19 +337,36 @@ var_declaration :
 type_specifier : 
 		INT
 		{ 
-			//fprintf(fp2, "Line# %d: Token <INT> Lexeme int found\n", @1.last_line);
+			ParseTree* integer = new ParseTree("INT : int" , @1.last_line, 0);
+			
+			$$ = new ParseTree("type_specifier : INT", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(integer);
+
 			dataType = "INT";
 			cout << "type_specifier : INT" << endl;
 		}
+
  		| FLOAT
 		{ 
-			//fprintf(fp2, "Line# %d: Token <FLOAT> Lexeme float found\n", @1.last_line);
+			ParseTree* flt = new ParseTree("FLOAT : float" , @1.last_line, 0);
+			
+			$$ = new ParseTree("type_specifier : FLOAT", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(flt);
+
 			dataType = "FLOAT";
 			cout << "type_specifier : FLOAT" << endl;
 		}
+
  		| VOID
 		{ 
-			//fprintf(fp2, "Line# %d: Token <VOID> Lexeme void found\n", @1.last_line);
+			ParseTree* vd = new ParseTree("VOID : void" , @1.last_line, 0);
+			
+			$$ = new ParseTree("type_specifier : VOID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(vd);
+
 			dataType = "VOID";
 			cout << "type_specifier : VOID" << endl;
 		}
@@ -221,30 +375,71 @@ type_specifier :
 declaration_list : 
 		declaration_list COMMA ID
 		{
-			/* fprintf(fp2, "Line# %d: Token <COMMA> Lexeme , found\n", @1.last_line);
-			fprintf(fp2, "Line# %d: Token <ID> Lexeme %s found\n", @1.last_line, $3->getName().c_str()); */
-			//table->insert($3);
+			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
+			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
+			
+			$1->addSibling(comma);
+			comma->addSibling(id);
+			
+			$$ = new ParseTree("declaration_list : declaration_list COMMA ID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
 
 			insertSymbol($3, "VARIABLE");
 			cout << "declaration_list : declaration_list COMMA ID" << endl;
 		}
+
 		| declaration_list COMMA ID LTHIRD CONST_INT RTHIRD
 		{
-			//table->insert($3);
+			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
+			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
+			ParseTree* lthird = new ParseTree("LTHIRD : [" , @4.last_line, 0);
+			ParseTree* const_int = new ParseTree("CONST_INT : " + $5->getName(), @5.last_line, 0);
+			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @6.last_line, 0);
+			
+			$1->addSibling(comma);
+			comma->addSibling(id);
+			id->addSibling(lthird);
+			lthird->addSibling(const_int);
+			const_int->addSibling(rthird);
+			
+			$$ = new ParseTree("declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			insertSymbol($3, "VARIABLE");
 			cout << "declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD" << endl;
 		}
+
 		| ID
 		{ 
-			/* fprintf(fp2, "Line# %d: Token <ID> Lexeme %s found\n", @1.last_line, $1->getName().c_str()); */
-			//table->insert($1);
+			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+			
+			$$ = new ParseTree("declaration_list : ID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(id);
+
 			insertSymbol($1, "VARIABLE");
 			cout << "declaration_list : ID" << endl;
 		}
+
 		| ID LTHIRD CONST_INT RTHIRD
 		{
-			//table->insert($1);
-			insertSymbol($1, "VARIABLE");
+			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+			ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
+			ParseTree* const_int = new ParseTree("CONST_INT : " + $3->getName(), @3.last_line, 0);
+			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
+			
+			id->addSibling(lthird);
+			lthird->addSibling(const_int);
+			const_int->addSibling(rthird);
+			
+			$$ = new ParseTree("declaration_list : ID LTHIRD CONST_INT RTHIRD", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(id);
+			
+			
+			insertSymbol($1, "ARRAY");
 			cout << "declaration_list : ID LTHIRD CONST_INT RTHIRD" << endl;
 		}
 		;
@@ -252,10 +447,20 @@ declaration_list :
 statements : 
 		statement
 		{
+			$$ = new ParseTree("statements : statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "statements : statement" << endl;
 		}
+
 		| statements statement
 		{
+			$1->addSibling($2);
+			$$ = new ParseTree("statements : statements statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "statements : statements statement" << endl;
 		}
 		;
@@ -263,74 +468,246 @@ statements :
 statement : 
 		var_declaration
 		{
+			$$ = new ParseTree("statement : var_declaration", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "statement : var_declaration" << endl;
 		}
+
 		| expression_statement
 		{
+			$$ = new ParseTree("statement : expression_statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "statement : expression_statement" << endl;
 		}
+
 		| compound_statement
 		{
+			$$ = new ParseTree("statement : compound_statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "statement : compound_statement" << endl; 
 		}
+
 		| FOR LPAREN expression_statement expression_statement expression RPAREN statement
 		{
+			ParseTree* node_for = new ParseTree("FOR : for" , @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )", @6.last_line, 0);
+			
+			node_for->addSibling(lparen);
+			lparen->addSibling($3);
+			$3->addSibling($4);
+			$4->addSibling($5);
+			$5->addSibling(rparen);
+			rparen->addSibling($7);
+			
+			$$ = new ParseTree("statement : FOR LPAREN expression_statement expression_statement expression RPAREN statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_for);
+			
+			
 			cout << "statement : FOR LPAREN expression_statement expression_statement" << 
 					"expression RPAREN statement" << endl; 
 		}
+
 		| IF LPAREN expression RPAREN statement
 		{
+			ParseTree* node_if = new ParseTree("IF : if" , @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )", @4.last_line, 0);
+			
+			node_if->addSibling(lparen);
+			lparen->addSibling($3);
+			$3->addSibling(rparen);
+			rparen->addSibling($5);
+			
+			$$ = new ParseTree("statement : IF LPAREN expression RPAREN statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_if);
+			
 			cout << "statement : IF LPAREN expression RPAREN statement" << endl;
+
 		}
+
 		| IF LPAREN expression RPAREN statement ELSE statement
 		{
+			ParseTree* node_if = new ParseTree("IF : if" , @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )", @4.last_line, 0);
+			ParseTree* node_else = new ParseTree("ELSE : else", @6.last_line, 0);
+			
+			node_if->addSibling(lparen);
+			lparen->addSibling($3);
+			$3->addSibling(rparen);
+			rparen->addSibling($5);
+			$5->addSibling(node_else);
+			node_else->addSibling($7);
+			
+			$$ = new ParseTree("statement : IF LPAREN expression RPAREN statement ELSE statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_if);
+			
 			cout << "statement : IF LPAREN expression RPAREN statement ELSE statement" << endl;
 		}
+
 		| WHILE LPAREN expression RPAREN statement
 		{
+			ParseTree* node_while = new ParseTree("WHILE : while" , @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )", @4.last_line, 0);
+			
+			node_while->addSibling(lparen);
+			lparen->addSibling($3);
+			$3->addSibling(rparen);
+			rparen->addSibling($5);
+			
+			$$ = new ParseTree("statement : WHILE LPAREN expression RPAREN statement", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_while);
+			
 			cout << "statement : WHILE LPAREN expression RPAREN statement" << endl;
 		}
+
 		| PRINTLN LPAREN ID RPAREN SEMICOLON
 		{
+			ParseTree* println = new ParseTree("PRINTLN : println" , @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
+			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )", @4.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;", @5.last_line, 0);
+			
+			println->addSibling(lparen);
+			lparen->addSibling(id);
+			id->addSibling(rparen);
+			rparen->addSibling(semicolon);
+			
+			$$ = new ParseTree("statement : PRINTLN LPAREN ID RPAREN SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(println);
+			
 			table->insert($3);
 			cout << "statement : PRINTLN LPAREN ID RPAREN SEMICOLON" << endl;
 		}
+
 		| RETURN expression SEMICOLON
 		{
+			ParseTree* node_return = new ParseTree("RETURN : return" , @1.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;", @3.last_line, 0);
+			
+			node_return->addSibling($2);
+			$2->addSibling(semicolon);
+			
+			$$ = new ParseTree("statement : RETURN expression SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_return);
+			
 			cout << "statement : RETURN expression SEMICOLON" << endl;
 		}
 		;
 	  
+
 expression_statement : 
 		SEMICOLON
 		{
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;", @1.last_line, 0);
+		
+			$$ = new ParseTree("expression_statement : SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(semicolon);
+
 			cout << "expression_statement : SEMICOLON" << endl;
-		}			
+		}	
+
 		| expression SEMICOLON 
 		{
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;", @2.last_line, 0);
+			$1->addSibling(semicolon);
+		
+			$$ = new ParseTree("expression_statement : expression SEMICOLON", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "expression_statement : expression SEMICOLON" << endl;
 		}
 		;
-	  
+
+
 variable : ID
 		{
-			//table->insert($1);
-			cout << "variable : ID" << endl;
+			if(declared($1)){
+				ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+			
+				$$ = new ParseTree("variable : ID", 
+										@$.first_line, @$.last_line);
+				$$->addLeftChild(id);
+				
+				//table->insert($1);
+				cout << "variable : ID" << endl;
+			}
+			else {
+				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
+				yyerror(errorMsg);
+			}
 		}
+
 		| ID LTHIRD expression RTHIRD 
 		{
-			//table->insert($1);
-			cout << "variable : ID LTHIRD expression RTHIRD" << endl;
+			if(declared($1)) {
+				if($1->getType() == "ARRAY") {
+					ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+					ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
+					ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
+					
+					id->addSibling(lthird);
+					lthird->addSibling($3);
+					$3->addSibling(rthird);
+					
+					$$ = new ParseTree("variable : ID LTHIRD expression RTHIRD", 
+											@$.first_line, @$.last_line);
+					$$->addLeftChild(id);
+					
+					
+					//table->insert($1);
+					cout << "variable : ID LTHIRD expression RTHIRD" << endl;
+				}
+				else {
+					string errorMsg = "'" + $1->getName() + "' is not an array";
+					yyerror(errorMsg);
+				}
+			}
+			else {
+				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
+				yyerror(errorMsg);
+			}
 		}
 		;
 	 
 expression : 
 		logic_expression
 		{
+			$$ = new ParseTree("expression : logic_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "expression : logic_expression" << endl;
-		}	
+		}
+
 		| variable ASSIGNOP logic_expression
 		{
+			ParseTree* assignop = new ParseTree("ASSIGNOP : =", @2.last_line, 0);
+			
+			$1->addSibling(assignop);
+			assignop->addSibling($3);
+			
+			$$ = new ParseTree("expression : variable ASSIGNOP logic_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "expression : variable ASSIGNOP logic_expression" << endl;
 		} 	
 		;
@@ -338,10 +715,24 @@ expression :
 logic_expression : 
 		rel_expression
 		{
+			$$ = new ParseTree("logic_expression : rel_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "logic_expression : rel_expression" << endl;
 		}
+
 		| rel_expression LOGICOP rel_expression
 		{
+			ParseTree* logicop = new ParseTree("LOGICOP : " + $2->getName(), @2.last_line, 0);
+			
+			$1->addSibling(logicop);
+			logicop->addSibling($3);
+			
+			$$ = new ParseTree("logic_expression : rel_expression LOGICOP rel_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "logic_expression : rel_expression LOGICOP rel_expression" << endl;
 		} 	
 		;
@@ -349,10 +740,24 @@ logic_expression :
 rel_expression	: 
 		simple_expression 
 		{
+			$$ = new ParseTree("rel_expression : simple_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "rel_expression : simple_expression" << endl;
 		}
+
 		| simple_expression RELOP simple_expression
 		{
+			ParseTree* relop = new ParseTree("RELOP : " + $2->getName(), @2.last_line, 0);
+			
+			$1->addSibling(relop);
+			relop->addSibling($3);
+			
+			$$ = new ParseTree("rel_expression : simple_expression RELOP simple_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "rel_expression : simple_expression RELOP simple_expression" << endl;
 		}	
 		;
@@ -360,20 +765,48 @@ rel_expression	:
 simple_expression :
 		term 
 		{
+			$$ = new ParseTree("simple_expression : term", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "simple_expression : term" << endl;
 		}
+
 		| simple_expression ADDOP term
 		{
+			ParseTree* addop = new ParseTree("ADDOP : " + $2->getName(), @2.last_line, 0);
+			
+			$1->addSibling(addop);
+			addop->addSibling($3);
+			
+			$$ = new ParseTree("simple_expression : simple_expression ADDOP term", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "simple_expression : simple_expression ADDOP term" << endl;
 		} 
 		;
 					
 term :	unary_expression
 		{
+			$$ = new ParseTree("term : unary_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "term :	unary_expression" << endl;
 		}
-		|  term MULOP unary_expression
+
+		| term MULOP unary_expression
 		{
+			ParseTree* mulop = new ParseTree("MULOP : " + $2->getName(), @2.last_line, 0);
+			
+			$1->addSibling(mulop);
+			mulop->addSibling($3);
+			
+			$$ = new ParseTree("term : term MULOP unary_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "term :	term MULOP unary_expression" << endl;
 		}
 		;
@@ -381,14 +814,36 @@ term :	unary_expression
 unary_expression : 
 		ADDOP unary_expression  
 		{
+			ParseTree* addop = new ParseTree("ADDOP : " + $1->getName(), @1.last_line, 0);
+			
+			addop->addSibling($2);
+			
+			$$ = new ParseTree("unary_expression : ADDOP unary_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(addop);
+			
 			cout << "unary_expression : ADDOP unary_expression" << endl;
 		}
+
 		| NOT unary_expression 
 		{
+			ParseTree* node_not = new ParseTree("NOT : !", @1.last_line, 0);
+			
+			node_not->addSibling($2);
+			
+			$$ = new ParseTree("unary_expression : NOT unary_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(node_not);
+			
 			cout << "unary_expression : NOT unary_expression" << endl;
 		}
+
 		| factor 
 		{
+			$$ = new ParseTree("unary_expression : factor", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "unary_expression : factor" << endl;
 		}
 		;
@@ -396,31 +851,97 @@ unary_expression :
 factor	: 
 		variable 
 		{
+			$$ = new ParseTree("factor : variable", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "factor : variable" << endl;
 		}
+
 		| ID LPAREN argument_list RPAREN
 		{
-			//table->insert($1);
-			cout << "factor : ID LPAREN argument_list RPAREN" << endl;
+			if(declared($1)){
+				ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+				ParseTree* lparen = new ParseTree("LPAREN : (" , @2.last_line, 0);
+				ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
+				
+				id->addSibling(lparen);
+				lparen->addSibling($3);
+				$3->addSibling(rparen);
+				
+				$$ = new ParseTree("factor : ID LPAREN argument_list RPAREN", 
+										@$.first_line, @$.last_line);
+				$$->addLeftChild(id);
+				
+				//table->insert($1);
+				cout << "factor : ID LPAREN argument_list RPAREN" << endl;
+			}
+			else {
+				string errorMsg = "Undeclared function '" + $1->getName() + "'";
+				yyerror(errorMsg);
+			}
 		}
+
 		| LPAREN expression RPAREN
 		{
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @1.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @3.last_line, 0);
+			
+			lparen->addSibling($2);
+			$2->addSibling(rparen);
+			
+			$$ = new ParseTree("factor : LPAREN expression RPAREN", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(lparen);
+
 			cout << "factor : LPAREN expression RPAREN" << endl;
 		}
+
 		| CONST_INT
 		{
+			ParseTree* const_int = new ParseTree("CONST_INT : " + $1->getName() , @1.last_line, 0);
+			
+			$$ = new ParseTree("factor : CONST_INT", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(const_int);
+
 			cout << "factor : CONST_INT" << endl;
 		}
+
 		| CONST_FLOAT
 		{
+			ParseTree* const_float = new ParseTree("CONST_FLOAT : " + $1->getName() , @1.last_line, 0);
+			
+			$$ = new ParseTree("factor : CONST_FLOAT", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(const_float);
+
 			cout << "factor : CONST_FLOAT" << endl;
 		}
+
 		| variable INCOP 
 		{
+			ParseTree* inop = new ParseTree("INCOP : ++", @1.last_line, 0);
+			
+			$1->addSibling(inop);
+			
+			$$ = new ParseTree("factor : variable INCOP", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+
 			cout << "factor : variable INCOP" << endl;
 		}
+
 		| variable DECOP
 		{
+			ParseTree* decop = new ParseTree("INCOP : --", @1.last_line, 0);
+			
+			$1->addSibling(decop);
+			
+			$$ = new ParseTree("factor : variable DECOP", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "factor : variable DECOP" << endl;
 		}
 		;
@@ -428,6 +949,9 @@ factor	:
 argument_list : 
 		arguments
 		{
+			$$ = new ParseTree("argument_list : arguments", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
 			cout << "argument_list : arguments" << endl;
 		}
 		;
@@ -435,10 +959,24 @@ argument_list :
 arguments : 
 		arguments COMMA logic_expression
 		{
+			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
+			
+			$1->addSibling(comma);
+			comma->addSibling($3);
+			
+			$$ = new ParseTree("arguments : arguments COMMA logic_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "arguments : arguments COMMA logic_expression" << endl;
 		}
+
 		| logic_expression
 		{
+			$$ = new ParseTree("arguments : logic_expression", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild($1);
+			
 			cout << "arguments : logic_expression" << endl;
 		}
 		;
@@ -454,16 +992,17 @@ int main(int argc,char *argv[])
 		exit(1);
 	}
 
-	fp2= fopen(argv[2],"w");
+	/* fp2= fopen(argv[2],"w");
 	fclose(fp2);
 	fp3= fopen(argv[3],"w");
 	fclose(fp3);
 	
 	fp2= fopen(argv[2],"a");
-	fp3= fopen(argv[3],"a");
+	fp3= fopen(argv[3],"a"); */
 
 	log_out.open(argv[2]);
 	tree_out.open(argv[3]);
+	error_out.open(argv[4]);
 
 	streambuf* coutBuffer = cout.rdbuf();
 	cout.rdbuf(log_out.rdbuf());
@@ -472,13 +1011,14 @@ int main(int argc,char *argv[])
 	yyin=fp;
 	yyparse();
 	
-	/* cout.rdbuf(coutBuffer); */
+	cout.rdbuf(coutBuffer);
 
-	fclose(fp2);
-	fclose(fp3);
+	/* fclose(fp2);
+	fclose(fp3); */
 
 	log_out.close();
 	tree_out.close();
+	error_out.close();
 	
 	return 0;
 }
