@@ -26,25 +26,27 @@ SymbolTable *table = new SymbolTable(BUCKET_NUM);
 
 string dataType;
 
+
+
+void yyerror(const char *s)
+{
+	//Line# 3: Syntax error at parameter list of function definition
+	error_out << "Line# " << yylineno << ": " << s << endl;
+}
+
 void insertSymbol(SymbolInfo* symbolInfo, string type){
 	symbolInfo->setDataType(dataType);
 	symbolInfo->setType(type);
 
 	if(!table->insert(symbolInfo)){
-		string errorMsg = "Redefinition of variable '"+ symbolInfo->getName() + "'"
-		yyerror(errorMsg);
+		string errorMsg = "Redefinition of variable '"+ symbolInfo->getName() + "'";
+		yyerror(errorMsg.c_str());
 	}
 	
 }
 
 bool declared(SymbolInfo* symbolInfo){
 	return table->lookup(symbolInfo->getName());
-}
-
-void yyerror(char *s)
-{
-	//Line# 3: Syntax error at parameter list of function definition
-	error_out << "Line# " << yylineno << ": " << s << endl;
 }
 
 %}
@@ -56,10 +58,13 @@ void yyerror(char *s)
     ParseTree* parseTree;
 }
 
+
+
 %type <parseTree> start program unit var_declaration func_declaration func_definition
  		type_specifier parameter_list compound_statement statements declaration_list
- 		statement expression_statement variable logic_expression rel_expression 
-		simple_expression term unary_expression factor argument_list arguments expression
+ 		statement expression_statement argument_list arguments 
+		variable expression logic_expression rel_expression 
+		simple_expression term unary_expression factor
 
 %token <symbolInfo> CONST_INT CONST_FLOAT ADDOP MULOP RELOP LOGICOP BITOP ID
 
@@ -645,13 +650,14 @@ variable : ID
 				$$ = new ParseTree("variable : ID", 
 										@$.first_line, @$.last_line);
 				$$->addLeftChild(id);
+				$$->setDataType($1->getDataType());
 				
 				//table->insert($1);
 				cout << "variable : ID" << endl;
 			}
 			else {
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
-				yyerror(errorMsg);
+				yyerror(errorMsg.c_str());
 			}
 		}
 
@@ -670,19 +676,19 @@ variable : ID
 					$$ = new ParseTree("variable : ID LTHIRD expression RTHIRD", 
 											@$.first_line, @$.last_line);
 					$$->addLeftChild(id);
-					
-					
+					$$->setDataType($1->getDataType());
+
 					//table->insert($1);
 					cout << "variable : ID LTHIRD expression RTHIRD" << endl;
 				}
 				else {
 					string errorMsg = "'" + $1->getName() + "' is not an array";
-					yyerror(errorMsg);
+					yyerror(errorMsg.c_str());
 				}
 			}
 			else {
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
-				yyerror(errorMsg);
+				yyerror(errorMsg.c_str());
 			}
 		}
 		;
@@ -693,6 +699,7 @@ expression :
 			$$ = new ParseTree("expression : logic_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "expression : logic_expression" << endl;
 		}
@@ -707,6 +714,7 @@ expression :
 			$$ = new ParseTree("expression : variable ASSIGNOP logic_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "expression : variable ASSIGNOP logic_expression" << endl;
 		} 	
@@ -718,6 +726,7 @@ logic_expression :
 			$$ = new ParseTree("logic_expression : rel_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "logic_expression : rel_expression" << endl;
 		}
@@ -732,6 +741,7 @@ logic_expression :
 			$$ = new ParseTree("logic_expression : rel_expression LOGICOP rel_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "logic_expression : rel_expression LOGICOP rel_expression" << endl;
 		} 	
@@ -743,6 +753,7 @@ rel_expression	:
 			$$ = new ParseTree("rel_expression : simple_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "rel_expression : simple_expression" << endl;
 		}
@@ -757,6 +768,7 @@ rel_expression	:
 			$$ = new ParseTree("rel_expression : simple_expression RELOP simple_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "rel_expression : simple_expression RELOP simple_expression" << endl;
 		}	
@@ -768,6 +780,7 @@ simple_expression :
 			$$ = new ParseTree("simple_expression : term", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "simple_expression : term" << endl;
 		}
@@ -782,6 +795,7 @@ simple_expression :
 			$$ = new ParseTree("simple_expression : simple_expression ADDOP term", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			///[][][][][][][][][][]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
 			
 			cout << "simple_expression : simple_expression ADDOP term" << endl;
 		} 
@@ -792,6 +806,7 @@ term :	unary_expression
 			$$ = new ParseTree("term : unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "term :	unary_expression" << endl;
 		}
@@ -806,6 +821,7 @@ term :	unary_expression
 			$$ = new ParseTree("term : term MULOP unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			///[][][][][][][][][][][][][][][][][][][][][][][][][][][]
 			
 			cout << "term :	term MULOP unary_expression" << endl;
 		}
@@ -821,6 +837,7 @@ unary_expression :
 			$$ = new ParseTree("unary_expression : ADDOP unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(addop);
+			$$->setDataType($1->getDataType());
 			
 			cout << "unary_expression : ADDOP unary_expression" << endl;
 		}
@@ -834,6 +851,7 @@ unary_expression :
 			$$ = new ParseTree("unary_expression : NOT unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(node_not);
+			$$->setDataType($2->getDataType());
 			
 			cout << "unary_expression : NOT unary_expression" << endl;
 		}
@@ -843,6 +861,7 @@ unary_expression :
 			$$ = new ParseTree("unary_expression : factor", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 
 			cout << "unary_expression : factor" << endl;
 		}
@@ -854,6 +873,7 @@ factor	:
 			$$ = new ParseTree("factor : variable", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "factor : variable" << endl;
 		}
@@ -872,13 +892,14 @@ factor	:
 				$$ = new ParseTree("factor : ID LPAREN argument_list RPAREN", 
 										@$.first_line, @$.last_line);
 				$$->addLeftChild(id);
+				$$->setDataType($1->getDataType());
 				
 				//table->insert($1);
 				cout << "factor : ID LPAREN argument_list RPAREN" << endl;
 			}
 			else {
 				string errorMsg = "Undeclared function '" + $1->getName() + "'";
-				yyerror(errorMsg);
+				yyerror(errorMsg.c_str());
 			}
 		}
 
@@ -893,6 +914,7 @@ factor	:
 			$$ = new ParseTree("factor : LPAREN expression RPAREN", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(lparen);
+			$$->setDataType($2->getDataType());
 
 			cout << "factor : LPAREN expression RPAREN" << endl;
 		}
@@ -904,6 +926,7 @@ factor	:
 			$$ = new ParseTree("factor : CONST_INT", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(const_int);
+			$$->setDataType("INT");
 
 			cout << "factor : CONST_INT" << endl;
 		}
@@ -915,6 +938,7 @@ factor	:
 			$$ = new ParseTree("factor : CONST_FLOAT", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(const_float);
+			$$->setDataType("FLOAT");
 
 			cout << "factor : CONST_FLOAT" << endl;
 		}
@@ -928,6 +952,7 @@ factor	:
 			$$ = new ParseTree("factor : variable INCOP", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 
 			cout << "factor : variable INCOP" << endl;
 		}
@@ -941,6 +966,7 @@ factor	:
 			$$ = new ParseTree("factor : variable DECOP", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+			$$->setDataType($1->getDataType());
 			
 			cout << "factor : variable DECOP" << endl;
 		}
