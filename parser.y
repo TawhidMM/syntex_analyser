@@ -4,7 +4,9 @@
 #include<cstdlib>
 #include<cstring>
 #include<cmath>
-#include "2005036_SymbolTable.cpp"
+#include "2005036_SymbolTable.h"
+#include "2005036_SymbolInfo.h"
+#include "2005036_FunctionParams.h"
 #include "2005036_ParseTree.cpp"
 
 using namespace std;
@@ -24,21 +26,34 @@ ofstream error_out;
 int BUCKET_NUM = 11;
 SymbolTable *table = new SymbolTable(BUCKET_NUM);
 
+FunctionParams* funcParams = nullptr;
+
 string dataType;
+int totalLine;
+int totalError = 0;
 
 
+string operationDataType(ParseTree* oparand1, ParseTree* oparand2);
+void checkVoidVariable(SymbolInfo* variable);
 
 void yyerror(const char *s)
 {
 	//Line# 3: Syntax error at parameter list of function definition
 	error_out << "Line# " << yylineno << ": " << s << endl;
+	totalError++;
 }
 
 void insertSymbol(SymbolInfo* symbolInfo, string type){
-	symbolInfo->setDataType(dataType);
-	symbolInfo->setType(type);
-
-	if(!table->insert(symbolInfo)){
+	/* alredy in symbol table, could be in diff scope */
+	if(table->lookup(symbolInfo->getName()))
+		symbolInfo = new SymbolInfo(symbolInfo->getName(), type);
+	
+	/* successful insert only if not in curr scope */
+	if(table->insert(symbolInfo)){
+		symbolInfo->setDataType(dataType);
+		symbolInfo->setType(type);
+	}
+	else{
 		string errorMsg = "Redefinition of variable '"+ symbolInfo->getName() + "'";
 		yyerror(errorMsg.c_str());
 	}
@@ -85,6 +100,9 @@ start :
 			$$->print(tree_out);
 
 			cout << "start : program" << endl;
+			
+			cout << "Total Lines: " << yylineno << endl;
+			cout << "Total Errors: " << totalError << endl;
 		}
 		;
 
@@ -153,6 +171,7 @@ func_declaration :
 			$$->addLeftChild($1);
 
 
+			$2->setFunctionParam(funcParams);
 			insertSymbol($2, "FUNCTION");
 
 			cout << "func_declaration : type_specifier ID LPAREN" << 
@@ -198,6 +217,7 @@ func_definition :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
+			$2->setFunctionParam(funcParams);
 			insertSymbol($2, "FUNCTION");
 
 			cout << "func_definition : type_specifier ID LPAREN parameter_list" << 
@@ -229,6 +249,10 @@ func_definition :
 parameter_list  : 
 		parameter_list COMMA type_specifier ID
 		{
+			$4 = new SymbolInfo($4->getName(), "VARIABLE");
+			$4->setDataType(dataType);
+			funcParams->add($4);
+			
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $4->getName(), @4.last_line, 0);
 			
@@ -241,7 +265,7 @@ parameter_list  :
 			$$->addLeftChild($1);
 
 
-			insertSymbol($4, "VARIABLE");
+			//insertSymbol($4, "VARIABLE");
 			
 			cout << "parameter_list : parameter_list COMMA type_specifier ID" << endl;
 		}
@@ -262,6 +286,12 @@ parameter_list  :
 
  		| type_specifier ID
 		{
+			funcParams = new FunctionParams();
+
+			$2 = new SymbolInfo($2->getName(), "VARIABLE");
+			$2->setDataType(dataType);
+			funcParams->add($2);
+			
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			$1->addSibling(id);
 			
@@ -269,7 +299,7 @@ parameter_list  :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-			insertSymbol($2, "VARIABLE");
+			//insertSymbol($2, "VARIABLE");
 			
 			cout << "parameter_list : type_specifier ID" << endl;
 		}
@@ -289,6 +319,16 @@ compound_statement :
 		LCURL 
 		{
 			table->enterScope();
+
+			if(funcParams != nullptr){
+				funcParams->moveToHead();
+
+				while(!funcParams->lastParam()){
+					table->insert(funcParams->nextParam());
+				}
+
+				funcParams = nullptr;
+			}
 		}
 		statements RCURL
 		{
@@ -380,6 +420,8 @@ type_specifier :
 declaration_list : 
 		declaration_list COMMA ID
 		{
+			checkVoidVariable($3);
+			
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
 			
@@ -396,6 +438,8 @@ declaration_list :
 
 		| declaration_list COMMA ID LTHIRD CONST_INT RTHIRD
 		{
+			checkVoidVariable($3);
+
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
 			ParseTree* lthird = new ParseTree("LTHIRD : [" , @4.last_line, 0);
@@ -412,12 +456,14 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			insertSymbol($3, "VARIABLE");
+			insertSymbol($3, "ARRAY");
 			cout << "declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD" << endl;
 		}
 
 		| ID
 		{ 
+			checkVoidVariable($1);
+
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
 			
 			$$ = new ParseTree("declaration_list : ID", 
@@ -430,6 +476,8 @@ declaration_list :
 
 		| ID LTHIRD CONST_INT RTHIRD
 		{
+			checkVoidVariable($1);
+
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
 			ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
 			ParseTree* const_int = new ParseTree("CONST_INT : " + $3->getName(), @3.last_line, 0);
@@ -644,52 +692,52 @@ expression_statement :
 
 variable : ID
 		{
-			if(declared($1)){
-				ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-			
-				$$ = new ParseTree("variable : ID", 
-										@$.first_line, @$.last_line);
-				$$->addLeftChild(id);
-				$$->setDataType($1->getDataType());
-				
-				//table->insert($1);
-				cout << "variable : ID" << endl;
-			}
-			else {
+			if(!declared($1)){
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
 				yyerror(errorMsg.c_str());
 			}
+
+			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+		
+			$$ = new ParseTree("variable : ID", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(id);
+			$$->setDataType($1->getDataType());
+			
+			//table->insert($1);
+			cout << "variable : ID" << endl;
+			
 		}
 
 		| ID LTHIRD expression RTHIRD 
 		{
-			if(declared($1)) {
-				if($1->getType() == "ARRAY") {
-					ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-					ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
-					ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
-					
-					id->addSibling(lthird);
-					lthird->addSibling($3);
-					$3->addSibling(rthird);
-					
-					$$ = new ParseTree("variable : ID LTHIRD expression RTHIRD", 
-											@$.first_line, @$.last_line);
-					$$->addLeftChild(id);
-					$$->setDataType($1->getDataType());
-
-					//table->insert($1);
-					cout << "variable : ID LTHIRD expression RTHIRD" << endl;
-				}
-				else {
-					string errorMsg = "'" + $1->getName() + "' is not an array";
-					yyerror(errorMsg.c_str());
-				}
-			}
-			else {
+			if(!declared($1)) {
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
 				yyerror(errorMsg.c_str());
 			}
+			if($1->getType() != "ARRAY") {
+				string errorMsg = "'" + $1->getName() + "' is not an array";
+				yyerror(errorMsg.c_str());
+			}
+			if($3->getDataType() != "INT"){
+				yyerror("Array subscript is not an integer");
+			}
+
+			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+			ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
+			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
+			
+			id->addSibling(lthird);
+			lthird->addSibling($3);
+			$3->addSibling(rthird);
+			
+			$$ = new ParseTree("variable : ID LTHIRD expression RTHIRD", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(id);
+			$$->setDataType($1->getDataType());
+
+			//table->insert($1);
+			cout << "variable : ID LTHIRD expression RTHIRD" << endl;
 		}
 		;
 	 
@@ -706,6 +754,10 @@ expression :
 
 		| variable ASSIGNOP logic_expression
 		{
+			if(($1->getDataType() == "INT") && ($3->getDataType() == "FLOAT")){
+				yyerror("Warning: possible loss of data in assignment of FLOAT to INT");
+			}
+				
 			ParseTree* assignop = new ParseTree("ASSIGNOP : =", @2.last_line, 0);
 			
 			$1->addSibling(assignop);
@@ -741,7 +793,7 @@ logic_expression :
 			$$ = new ParseTree("logic_expression : rel_expression LOGICOP rel_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
-			$$->setDataType($1->getDataType());
+			$$->setDataType("INT");
 			
 			cout << "logic_expression : rel_expression LOGICOP rel_expression" << endl;
 		} 	
@@ -768,7 +820,7 @@ rel_expression	:
 			$$ = new ParseTree("rel_expression : simple_expression RELOP simple_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
-			$$->setDataType($1->getDataType());
+			$$->setDataType("INT");
 			
 			cout << "rel_expression : simple_expression RELOP simple_expression" << endl;
 		}	
@@ -795,7 +847,7 @@ simple_expression :
 			$$ = new ParseTree("simple_expression : simple_expression ADDOP term", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
-			///[][][][][][][][][][]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+			$$->setDataType(operationDataType($1, $3));
 			
 			cout << "simple_expression : simple_expression ADDOP term" << endl;
 		} 
@@ -813,6 +865,15 @@ term :	unary_expression
 
 		| term MULOP unary_expression
 		{
+			string type = operationDataType($1, $3);
+			
+			if($2->getName() == "%" && type != "INT") {
+				yyerror("Operands of modulus must be integers");
+				$$->setDataType("VOID");
+			}
+			else
+				$$->setDataType(type);
+				
 			ParseTree* mulop = new ParseTree("MULOP : " + $2->getName(), @2.last_line, 0);
 			
 			$1->addSibling(mulop);
@@ -821,7 +882,6 @@ term :	unary_expression
 			$$ = new ParseTree("term : term MULOP unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
-			///[][][][][][][][][][][][][][][][][][][][][][][][][][][]
 			
 			cout << "term :	term MULOP unary_expression" << endl;
 		}
@@ -880,27 +940,29 @@ factor	:
 
 		| ID LPAREN argument_list RPAREN
 		{
-			if(declared($1)){
-				ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-				ParseTree* lparen = new ParseTree("LPAREN : (" , @2.last_line, 0);
-				ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
-				
-				id->addSibling(lparen);
-				lparen->addSibling($3);
-				$3->addSibling(rparen);
-				
-				$$ = new ParseTree("factor : ID LPAREN argument_list RPAREN", 
-										@$.first_line, @$.last_line);
-				$$->addLeftChild(id);
-				$$->setDataType($1->getDataType());
-				
-				//table->insert($1);
-				cout << "factor : ID LPAREN argument_list RPAREN" << endl;
-			}
-			else {
+			if(!declared($1)){
 				string errorMsg = "Undeclared function '" + $1->getName() + "'";
 				yyerror(errorMsg.c_str());
 			}
+			if($1->getDataType() == "VOID")
+				yyerror("Void cannot be used in expression");
+
+			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @2.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
+			
+			id->addSibling(lparen);
+			lparen->addSibling($3);
+			$3->addSibling(rparen);
+			
+			$$ = new ParseTree("factor : ID LPAREN argument_list RPAREN", 
+									@$.first_line, @$.last_line);
+			$$->addLeftChild(id);
+			$$->setDataType($1->getDataType());
+			
+			//table->insert($1);
+			cout << "factor : ID LPAREN argument_list RPAREN" << endl;
+			
 		}
 
 		| LPAREN expression RPAREN
@@ -1018,33 +1080,45 @@ int main(int argc,char *argv[])
 		exit(1);
 	}
 
-	/* fp2= fopen(argv[2],"w");
-	fclose(fp2);
-	fp3= fopen(argv[3],"w");
-	fclose(fp3);
-	
-	fp2= fopen(argv[2],"a");
-	fp3= fopen(argv[3],"a"); */
-
 	log_out.open(argv[2]);
 	tree_out.open(argv[3]);
 	error_out.open(argv[4]);
 
 	streambuf* coutBuffer = cout.rdbuf();
 	cout.rdbuf(log_out.rdbuf());
-	
 
 	yyin=fp;
 	yyparse();
+
+
 	
 	cout.rdbuf(coutBuffer);
-
-	/* fclose(fp2);
-	fclose(fp3); */
 
 	log_out.close();
 	tree_out.close();
 	error_out.close();
-	
+
+
 	return 0;
+}
+
+string operationDataType(ParseTree* oparand1, ParseTree* oparand2){
+	if((oparand1->getDataType() == "VOID") || 
+			(oparand2->getDataType() == "VOID")) {
+				return "VOID";
+	}
+	else if((oparand1->getDataType() == "FLOAT") || 
+				(oparand2->getDataType() == "FLOAT")) {
+					return "FLOAT";
+	}
+	else
+		return "INT";
+}
+
+void checkVoidVariable(SymbolInfo* variable){
+	if(dataType == "VOID"){
+		string errorMsg = "Variable or field '" + variable->getName() + 
+							"' declared void";
+		yyerror(errorMsg.c_str());
+	}
 }
