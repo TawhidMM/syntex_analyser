@@ -1,9 +1,6 @@
 %{
-#include<iostream>
+#include <iostream>
 #include <fstream>
-#include<cstdlib>
-#include<cstring>
-#include<cmath>
 #include "2005036_SymbolTable.h"
 #include "2005036_SymbolInfo.h"
 #include "2005036_FunctionParams.h"
@@ -35,29 +32,15 @@ int totalError = 0;
 
 string operationDataType(ParseTree* oparand1, ParseTree* oparand2);
 void checkVoidVariable(SymbolInfo* variable);
+void insertVariable(SymbolInfo* symbolInfo, string type);
+void insertFunction(SymbolInfo* symbolInfo, string returnType);
+bool checkFuncDefination(SymbolInfo* func, string returnType);
 
-void yyerror(const char *s)
+void yyerror(string s)
 {
 	//Line# 3: Syntax error at parameter list of function definition
 	error_out << "Line# " << yylineno << ": " << s << endl;
 	totalError++;
-}
-
-void insertSymbol(SymbolInfo* symbolInfo, string type){
-	/* alredy in symbol table, could be in diff scope */
-	if(table->lookup(symbolInfo->getName()))
-		symbolInfo = new SymbolInfo(symbolInfo->getName(), type);
-	
-	/* successful insert only if not in curr scope */
-	if(table->insert(symbolInfo)){
-		symbolInfo->setDataType(dataType);
-		symbolInfo->setType(type);
-	}
-	else{
-		string errorMsg = "Redefinition of variable '"+ symbolInfo->getName() + "'";
-		yyerror(errorMsg.c_str());
-	}
-	
 }
 
 bool declared(SymbolInfo* symbolInfo){
@@ -171,10 +154,9 @@ func_declaration :
 			$$->addLeftChild($1);
 
 
-			$2->setFunctionParam(funcParams);
-			insertSymbol($2, "FUNCTION");
+			insertFunction($2, $1->getDataType());
 
-			cout << "func_declaration : type_specifier ID LPAREN" << 
+			cout << "func_declaration : type_specifier ID LPAREN " << 
 				"parameter_list RPAREN SEMICOLON" << endl;
 		}
 
@@ -194,7 +176,7 @@ func_declaration :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			insertSymbol($2, "FUNCTION");
+			insertFunction($2, $1->getDataType());
 			
 			cout << "func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON" << endl;
 		}
@@ -203,6 +185,13 @@ func_declaration :
 func_definition : 
 		type_specifier ID LPAREN parameter_list RPAREN compound_statement
 		{
+			if(checkFuncDefination($2, $1->getDataType())) {
+				insertFunction($2, $1->getDataType());
+			}
+			else{
+				yyerror("Conflicting types for '" + $2->getName() + "'");
+			}
+			
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
 			ParseTree* rparen = new ParseTree("RPAREN : )" , @5.last_line, 0);
@@ -217,15 +206,19 @@ func_definition :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			$2->setFunctionParam(funcParams);
-			insertSymbol($2, "FUNCTION");
-
 			cout << "func_definition : type_specifier ID LPAREN parameter_list" << 
 				"RPAREN compound_statement" << endl;
 		}
 
 		| type_specifier ID LPAREN RPAREN compound_statement
 		{
+			if(checkFuncDefination($2, $1->getDataType())){
+				insertFunction($2, $1->getDataType());
+			}
+			else{
+				yyerror("Conflicting types for '" + $2->getName() + "'");
+			}
+			
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
 			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
@@ -238,8 +231,6 @@ func_definition :
 			$$ = new ParseTree("func_definition : type_specifier ID LPAREN RPAREN compound_statement", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
-			
-			insertSymbol($2, "FUNCTION");
 			
 			cout << "func_definition : type_specifier ID LPAREN RPAREN compound_statement" << endl;
 		}
@@ -265,7 +256,7 @@ parameter_list  :
 			$$->addLeftChild($1);
 
 
-			//insertSymbol($4, "VARIABLE");
+			//insertVariable($4, "VARIABLE");
 			
 			cout << "parameter_list : parameter_list COMMA type_specifier ID" << endl;
 		}
@@ -299,7 +290,7 @@ parameter_list  :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-			//insertSymbol($2, "VARIABLE");
+			//insertVariable($2, "VARIABLE");
 			
 			cout << "parameter_list : type_specifier ID" << endl;
 		}
@@ -324,7 +315,10 @@ compound_statement :
 				funcParams->moveToHead();
 
 				while(!funcParams->lastParam()){
-					table->insert(funcParams->nextParam());
+					SymbolInfo* parameter = funcParams->nextParam();
+					if(!table->insert(parameter)){
+						yyerror("Redefinition of parameter '" + parameter->getName() + "'");
+					}
 				}
 
 				funcParams = nullptr;
@@ -387,6 +381,7 @@ type_specifier :
 			$$ = new ParseTree("type_specifier : INT", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(integer);
+			$$->setDataType("INT");
 
 			dataType = "INT";
 			cout << "type_specifier : INT" << endl;
@@ -399,6 +394,7 @@ type_specifier :
 			$$ = new ParseTree("type_specifier : FLOAT", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(flt);
+			$$->setDataType("FLOAT");
 
 			dataType = "FLOAT";
 			cout << "type_specifier : FLOAT" << endl;
@@ -411,6 +407,7 @@ type_specifier :
 			$$ = new ParseTree("type_specifier : VOID", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(vd);
+			$$->setDataType("VOID");
 
 			dataType = "VOID";
 			cout << "type_specifier : VOID" << endl;
@@ -432,7 +429,7 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-			insertSymbol($3, "VARIABLE");
+			insertVariable($3, "VARIABLE");
 			cout << "declaration_list : declaration_list COMMA ID" << endl;
 		}
 
@@ -456,7 +453,7 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			insertSymbol($3, "ARRAY");
+			insertVariable($3, "ARRAY");
 			cout << "declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD" << endl;
 		}
 
@@ -470,7 +467,7 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
 
-			insertSymbol($1, "VARIABLE");
+			insertVariable($1, "VARIABLE");
 			cout << "declaration_list : ID" << endl;
 		}
 
@@ -492,7 +489,7 @@ declaration_list :
 			$$->addLeftChild(id);
 			
 			
-			insertSymbol($1, "ARRAY");
+			insertVariable($1, "ARRAY");
 			cout << "declaration_list : ID LTHIRD CONST_INT RTHIRD" << endl;
 		}
 		;
@@ -694,7 +691,7 @@ variable : ID
 		{
 			if(!declared($1)){
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
-				yyerror(errorMsg.c_str());
+				yyerror(errorMsg);
 			}
 
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
@@ -713,11 +710,11 @@ variable : ID
 		{
 			if(!declared($1)) {
 				string errorMsg = "Undeclared variable '" + $1->getName() + "'";
-				yyerror(errorMsg.c_str());
+				yyerror(errorMsg);
 			}
 			if($1->getType() != "ARRAY") {
 				string errorMsg = "'" + $1->getName() + "' is not an array";
-				yyerror(errorMsg.c_str());
+				yyerror(errorMsg);
 			}
 			if($3->getDataType() != "INT"){
 				yyerror("Array subscript is not an integer");
@@ -754,6 +751,9 @@ expression :
 
 		| variable ASSIGNOP logic_expression
 		{
+			if($3->getDataType() == "VOID")
+				yyerror("Void cannot be used in expression");
+			
 			if(($1->getDataType() == "INT") && ($3->getDataType() == "FLOAT")){
 				yyerror("Warning: possible loss of data in assignment of FLOAT to INT");
 			}
@@ -848,7 +848,7 @@ simple_expression :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			$$->setDataType(operationDataType($1, $3));
-			
+
 			cout << "simple_expression : simple_expression ADDOP term" << endl;
 		} 
 		;
@@ -865,15 +865,6 @@ term :	unary_expression
 
 		| term MULOP unary_expression
 		{
-			string type = operationDataType($1, $3);
-			
-			if($2->getName() == "%" && type != "INT") {
-				yyerror("Operands of modulus must be integers");
-				$$->setDataType("VOID");
-			}
-			else
-				$$->setDataType(type);
-				
 			ParseTree* mulop = new ParseTree("MULOP : " + $2->getName(), @2.last_line, 0);
 			
 			$1->addSibling(mulop);
@@ -882,6 +873,15 @@ term :	unary_expression
 			$$ = new ParseTree("term : term MULOP unary_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
+
+			string type = operationDataType($1, $3);
+			
+			if($2->getName() == "%" && type != "INT") {
+				yyerror("Operands of modulus must be integers");
+				$$->setDataType("INVALID");
+			}
+			else
+				$$->setDataType(type);
 			
 			cout << "term :	term MULOP unary_expression" << endl;
 		}
@@ -942,10 +942,9 @@ factor	:
 		{
 			if(!declared($1)){
 				string errorMsg = "Undeclared function '" + $1->getName() + "'";
-				yyerror(errorMsg.c_str());
+				yyerror(errorMsg);
 			}
-			if($1->getDataType() == "VOID")
-				yyerror("Void cannot be used in expression");
+			
 
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @2.last_line, 0);
@@ -960,7 +959,7 @@ factor	:
 			$$->addLeftChild(id);
 			$$->setDataType($1->getDataType());
 			
-			//table->insert($1);
+
 			cout << "factor : ID LPAREN argument_list RPAREN" << endl;
 			
 		}
@@ -1102,10 +1101,14 @@ int main(int argc,char *argv[])
 	return 0;
 }
 
-string operationDataType(ParseTree* oparand1, ParseTree* oparand2){
-	if((oparand1->getDataType() == "VOID") || 
-			(oparand2->getDataType() == "VOID")) {
-				return "VOID";
+string operationDataType(ParseTree* oparand1, ParseTree* oparand2) {
+	if((oparand1->getDataType() == "INVALID") || 
+			(oparand2->getDataType() == "INVALID")) {
+				return "INVALID";
+	}
+	else if((oparand1->getDataType() == "VOID") || 
+				(oparand2->getDataType() == "VOID")) {
+					return "VOID";
 	}
 	else if((oparand1->getDataType() == "FLOAT") || 
 				(oparand2->getDataType() == "FLOAT")) {
@@ -1119,6 +1122,84 @@ void checkVoidVariable(SymbolInfo* variable){
 	if(dataType == "VOID"){
 		string errorMsg = "Variable or field '" + variable->getName() + 
 							"' declared void";
-		yyerror(errorMsg.c_str());
+		yyerror(errorMsg);
+	}
+}
+
+void insertVariable(SymbolInfo* symbolInfo, string type) {
+	/* alredy in symbol table, could be in diff scope */
+	SymbolInfo* matchedInfo = table->lookup(symbolInfo->getName());
+	if(matchedInfo != nullptr)
+		symbolInfo = new SymbolInfo(symbolInfo->getName(), type);
+	
+	/* successful insert only if not in curr scope */
+	if(table->insert(symbolInfo)){
+		symbolInfo->setDataType(dataType);
+		symbolInfo->setType(type);
+	}
+	else {
+		if(matchedInfo->getType() != type)
+			yyerror("'" + symbolInfo->getName()  + "' redeclared as different kind of symbol");
+		else if(matchedInfo->getDataType() == dataType)
+			yyerror("Redefinition of variable '"+ symbolInfo->getName() + "'");
+		else
+			yyerror("Conflicting types for '"+ symbolInfo->getName() + "'");
+	}
+}
+
+void insertFunction(SymbolInfo* symbolInfo, string returnType){
+	
+	if(table->insert(symbolInfo)) {
+		symbolInfo->setDataType(returnType);
+		symbolInfo->setType("FUNCTION");
+		symbolInfo->setFunctionParam(funcParams);
+	}
+	else if(symbolInfo->getType() != "FUNCTION") {
+		yyerror("'" + symbolInfo->getName()  + "' redeclared as different kind of symbol");
+	}
+	
+}
+
+bool checkFuncDefination(SymbolInfo* func, string returnType) {
+	/* function not declared or matched symbol not a function */
+	if((func->getDataType() == "") || (func->getType() != "FUNCTION")) {
+		return true;
+	}
+	
+	/* mismatch in return type */
+	if(returnType != func->getDataType()){
+		return false;
+	}
+
+	FunctionParams* declaredParams = func->getFunctionParams();
+
+	/* no function params, nothing to check */
+	if(declaredParams == nullptr && funcParams == nullptr) {
+		return true;
+	}
+	else if(declaredParams == nullptr || funcParams == nullptr) {
+		return false;
+	}
+	/* check parameters */
+	else{
+
+		/* mismatch in parameter num */
+		if(declaredParams->getParamNum() != funcParams->getParamNum()) {
+			return false;
+		}
+
+		/* check params data type  */
+		declaredParams->moveToHead();
+		funcParams->moveToHead();
+
+		while(!declaredParams->lastParam() && !funcParams->lastParam()) {
+			SymbolInfo* definedInfo = funcParams->nextParam();
+			SymbolInfo* declaredInfo = declaredParams->nextParam();
+
+			if(definedInfo->getDataType() != declaredInfo->getDataType()) {
+				return false;
+			}
+		}
+		return true;
 	}
 }
