@@ -3,9 +3,9 @@
 
 Syntax analysis part of a C compiler. yacc/bison is used as the parsing tool. It takes c code as input and generates a parse tree after parsing the input.
 
-[Assignment Spec](https://github.com/TawhidMM/ICG/blob/master/sample_inputs/CSE_310_July_2023_ICG_Spec.pdf)
+[Assignment Spec](https://github.com/TawhidMM/syntex_analyser/blob/master/materials/CSE310_July_2023_YACC_Assignment_Spec.pdf)
 
-[yacc/bison materials](https://github.com/TawhidMM/ICG/blob/master/sample_inputs/CSE_310_July_2023_ICG_Spec.pdf)
+[yacc/bison materials](https://github.com/TawhidMM/syntex_analyser/tree/master/materials/book%26slide)
 
 
 ## Requirements
@@ -43,4 +43,3 @@ Syntax analysis part of a C compiler. yacc/bison is used as the parsing tool. It
 
 The full CSE 310, BUET 
 [Compiler](https://github.com/TawhidMM/C_Compiler)
-    
