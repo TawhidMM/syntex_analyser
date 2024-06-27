@@ -10,6 +10,7 @@ private:
     string node;
     int startLine;
     int finishLine;
+    string dataType;
     ParseTree* leftChild;
     ParseTree* sibling;
 
@@ -19,6 +20,7 @@ public:
         this->startLine = startLine;
         this->finishLine = finishLine;
 
+        dataType = "";
         leftChild = nullptr;
         sibling = nullptr;
     }
@@ -36,6 +38,13 @@ public:
     }
     ParseTree* getSibling(){
         return sibling;
+    }
+
+    void setDataType(string type){
+        dataType = type;
+    }
+    string getDataType(){
+        return dataType;
     }
 
 
@@ -62,13 +71,14 @@ public:
     }
 
     friend ostream& operator<<(ostream& os, const ParseTree& obj) {
-        os << obj.node << " \t" << "<Line: " << obj.startLine; 
-
-        if(obj.leftChild != nullptr)
-            os << "-" << obj.finishLine;
-             
-        os << ">";
-
+        if(obj.leftChild != nullptr){
+            os << obj.node << " \t" << "<Line: " << obj.startLine <<
+                "-" << obj.finishLine << ">";
+        }
+        else {
+            os << obj.node << "\t" << "<Line: " << obj.startLine << ">";
+        }
+            
         return os;
     }
 

@@ -23,23 +23,30 @@ ofstream error_out;
 int BUCKET_NUM = 11;
 SymbolTable *table = new SymbolTable(BUCKET_NUM);
 
+SymbolInfo* sinfo = nullptr;
 FunctionParams* funcParams = nullptr;
 
 string dataType;
+int constantNum;
+bool expOperation = false;
+int count = 0;
 int totalLine;
 int totalError = 0;
 
 
 string operationDataType(ParseTree* oparand1, ParseTree* oparand2);
-void checkVoidVariable(SymbolInfo* variable);
+bool voidVariable(SymbolInfo* variable);
 void insertVariable(SymbolInfo* symbolInfo, string type);
-void insertFunction(SymbolInfo* symbolInfo, string returnType);
+void insertFunction(SymbolInfo* symbolInfo, string returnType, int line);
 bool checkFuncDefination(SymbolInfo* func, string returnType);
+void checkFunctionCall(string calledType);
+bool matchType(string t1, string t2);
+void resetFuncCall();
+bool devidedByZero(SymbolInfo* operand);
 
-void yyerror(string s)
+void yyerror(string s, int line = yylineno)
 {
-	//Line# 3: Syntax error at parameter list of function definition
-	error_out << "Line# " << yylineno << ": " << s << endl;
+	error_out << "Line# " << line << ": " << s << endl;
 	totalError++;
 }
 
@@ -64,12 +71,18 @@ bool declared(SymbolInfo* symbolInfo){
 		variable expression logic_expression rel_expression 
 		simple_expression term unary_expression factor
 
-%token <symbolInfo> CONST_INT CONST_FLOAT ADDOP MULOP RELOP LOGICOP BITOP ID
+%token <symbolInfo> CONST_INT CONST_FLOAT BITOP ID
 
 %token	IF ELSE FOR WHILE DO BREAK INT CHAR FLOAT DOUBLE VOID RETURN 
-		SWITCH CASE DEFAULT CONTINUE CONST_CHAR INCOP ASSIGNOP DECOP 
-		PRINTLN NOT LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON 
+		SWITCH CASE DEFAULT CONTINUE CONST_CHAR 
+		PRINTLN  LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD COMMA SEMICOLON 
 		MULTI_LINE_STRING SINGLE_LINE_STRING
+
+%left <symbolInfo> LOGICOP RELOP ADDOP MULOP
+%right  ASSIGNOP INCOP DECOP NOT
+
+%nonassoc LOWER_THAN_ELSE
+%nonassoc ELSE
 
 
 %%
@@ -123,6 +136,7 @@ unit :
 			$$->addLeftChild($1);
 			
 			cout << "unit : func_declaration" << endl;
+			funcParams = nullptr;
 		}
 
 		| func_definition
@@ -131,6 +145,7 @@ unit :
 			$$->addLeftChild($1);
 			
 			cout << "unit : func_definition" << endl;
+			funcParams = nullptr;
 		}
 		;
      
@@ -140,7 +155,7 @@ func_declaration :
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
 			ParseTree* rparen = new ParseTree("RPAREN : )" , @5.last_line, 0);
-			ParseTree* semicolon = new ParseTree("SEMICOLON : :" , @6.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;" , @6.last_line, 0);
 
 			$1->addSibling(id);
 			id->addSibling(lparen);
@@ -154,7 +169,7 @@ func_declaration :
 			$$->addLeftChild($1);
 
 
-			insertFunction($2, $1->getDataType());
+			insertFunction($2, $1->getDataType(), @2.last_line);
 
 			cout << "func_declaration : type_specifier ID LPAREN " << 
 				"parameter_list RPAREN SEMICOLON" << endl;
@@ -165,7 +180,7 @@ func_declaration :
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
 			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
-			ParseTree* semicolon = new ParseTree("SEMICOLON : :" , @5.last_line, 0);
+			ParseTree* semicolon = new ParseTree("SEMICOLON : ;" , @5.last_line, 0);
 
 			$1->addSibling(id);
 			id->addSibling(lparen);
@@ -176,7 +191,7 @@ func_declaration :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			insertFunction($2, $1->getDataType());
+			insertFunction($2, $1->getDataType(), @2.last_line);
 			
 			cout << "func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON" << endl;
 		}
@@ -186,10 +201,10 @@ func_definition :
 		type_specifier ID LPAREN parameter_list RPAREN compound_statement
 		{
 			if(checkFuncDefination($2, $1->getDataType())) {
-				insertFunction($2, $1->getDataType());
+				insertFunction($2, $1->getDataType(), @2.last_line);
 			}
 			else{
-				yyerror("Conflicting types for '" + $2->getName() + "'");
+				yyerror("Conflicting types for '" + $2->getName() + "'", @2.last_line);
 			}
 			
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
@@ -206,19 +221,20 @@ func_definition :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			cout << "func_definition : type_specifier ID LPAREN parameter_list" << 
+			cout << "func_definition : type_specifier ID LPAREN parameter_list " << 
 				"RPAREN compound_statement" << endl;
+
 		}
 
 		| type_specifier ID LPAREN RPAREN compound_statement
 		{
-			if(checkFuncDefination($2, $1->getDataType())){
-				insertFunction($2, $1->getDataType());
+			if(checkFuncDefination($2, $1->getDataType())) {
+				insertFunction($2, $1->getDataType(), @2.last_line);
 			}
 			else{
-				yyerror("Conflicting types for '" + $2->getName() + "'");
+				yyerror("Conflicting types for '" + $2->getName() + "'", @2.last_line);
 			}
-			
+
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
 			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
@@ -233,6 +249,7 @@ func_definition :
 			$$->addLeftChild($1);
 			
 			cout << "func_definition : type_specifier ID LPAREN RPAREN compound_statement" << endl;
+
 		}
  		;				
 
@@ -246,6 +263,7 @@ parameter_list  :
 			
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $4->getName(), @4.last_line, 0);
+			constantNum = @4.last_line;
 			
 			$1->addSibling(comma);
 			comma->addSibling($3);
@@ -255,9 +273,6 @@ parameter_list  :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-
-			//insertVariable($4, "VARIABLE");
-			
 			cout << "parameter_list : parameter_list COMMA type_specifier ID" << endl;
 		}
 
@@ -285,13 +300,12 @@ parameter_list  :
 			
 			ParseTree* id = new ParseTree("ID : " + $2->getName(), @2.last_line, 0);
 			$1->addSibling(id);
+			constantNum = @2.last_line;
 			
 			$$ = new ParseTree("parameter_list : type_specifier ID", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-			//insertVariable($2, "VARIABLE");
-			
 			cout << "parameter_list : type_specifier ID" << endl;
 		}
 
@@ -313,19 +327,21 @@ compound_statement :
 
 			if(funcParams != nullptr){
 				funcParams->moveToHead();
-
 				while(!funcParams->lastParam()){
 					SymbolInfo* parameter = funcParams->nextParam();
-					if(!table->insert(parameter)){
-						yyerror("Redefinition of parameter '" + parameter->getName() + "'");
+					parameter = new SymbolInfo(parameter->getName(), 
+									parameter->getType(), parameter->getDataType());
+
+					if(!table->insert(parameter)) {
+						yyerror("Redefinition of parameter '" + parameter->getName() + "'", constantNum);
 					}
 				}
-
-				funcParams = nullptr;
 			}
 		}
 		statements RCURL
 		{
+			
+			
 			ParseTree* lcurl = new ParseTree("LCURL : {", @1.last_line, 0);
 			ParseTree* rcurl = new ParseTree("RCURL : }", @4.last_line, 0);
 			
@@ -417,7 +433,8 @@ type_specifier :
 declaration_list : 
 		declaration_list COMMA ID
 		{
-			checkVoidVariable($3);
+			if(!voidVariable($3))
+				insertVariable($3, "VARIABLE");
 			
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
@@ -429,19 +446,19 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 
-			insertVariable($3, "VARIABLE");
 			cout << "declaration_list : declaration_list COMMA ID" << endl;
 		}
 
 		| declaration_list COMMA ID LTHIRD CONST_INT RTHIRD
 		{
-			checkVoidVariable($3);
+			if(!voidVariable($3))
+				insertVariable($3, "ARRAY");
 
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			ParseTree* id = new ParseTree("ID : " + $3->getName(), @3.last_line, 0);
-			ParseTree* lthird = new ParseTree("LTHIRD : [" , @4.last_line, 0);
+			ParseTree* lthird = new ParseTree("LSQUARE : [" , @4.last_line, 0);
 			ParseTree* const_int = new ParseTree("CONST_INT : " + $5->getName(), @5.last_line, 0);
-			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @6.last_line, 0);
+			ParseTree* rthird = new ParseTree("RSQUARE : ]" , @6.last_line, 0);
 			
 			$1->addSibling(comma);
 			comma->addSibling(id);
@@ -449,17 +466,17 @@ declaration_list :
 			lthird->addSibling(const_int);
 			const_int->addSibling(rthird);
 			
-			$$ = new ParseTree("declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD", 
+			$$ = new ParseTree("declaration_list : declaration_list COMMA ID LSQUARE CONST_INT RSQUARE", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			
-			insertVariable($3, "ARRAY");
-			cout << "declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD" << endl;
+			cout << "declaration_list : declaration_list COMMA ID LSQUARE CONST_INT RSQUARE" << endl;
 		}
 
 		| ID
 		{ 
-			checkVoidVariable($1);
+			if(!voidVariable($1))
+				insertVariable($1, "VARIABLE");
 
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
 			
@@ -467,30 +484,28 @@ declaration_list :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
 
-			insertVariable($1, "VARIABLE");
 			cout << "declaration_list : ID" << endl;
 		}
 
 		| ID LTHIRD CONST_INT RTHIRD
 		{
-			checkVoidVariable($1);
+			if(!voidVariable($1))
+				insertVariable($1, "ARRAY");
 
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-			ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
+			ParseTree* lthird = new ParseTree("LSQUARE : [" , @2.last_line, 0);
 			ParseTree* const_int = new ParseTree("CONST_INT : " + $3->getName(), @3.last_line, 0);
-			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
+			ParseTree* rthird = new ParseTree("RSQUARE : ]" , @4.last_line, 0);
 			
 			id->addSibling(lthird);
 			lthird->addSibling(const_int);
 			const_int->addSibling(rthird);
 			
-			$$ = new ParseTree("declaration_list : ID LTHIRD CONST_INT RTHIRD", 
+			$$ = new ParseTree("declaration_list : ID LSQUARE CONST_INT RSQUARE", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
 			
-			
-			insertVariable($1, "ARRAY");
-			cout << "declaration_list : ID LTHIRD CONST_INT RTHIRD" << endl;
+			cout << "declaration_list : ID LSQUARE CONST_INT RSQUARE" << endl;
 		}
 		;
  		  
@@ -565,7 +580,7 @@ statement :
 					"expression RPAREN statement" << endl; 
 		}
 
-		| IF LPAREN expression RPAREN statement
+		| IF LPAREN expression RPAREN statement %prec LOWER_THAN_ELSE
 		{
 			ParseTree* node_if = new ParseTree("IF : if" , @1.last_line, 0);
 			ParseTree* lparen = new ParseTree("LPAREN : (", @2.last_line, 0);
@@ -640,7 +655,6 @@ statement :
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(println);
 			
-			table->insert($3);
 			cout << "statement : PRINTLN LPAREN ID RPAREN SEMICOLON" << endl;
 		}
 
@@ -699,11 +713,13 @@ variable : ID
 			$$ = new ParseTree("variable : ID", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
-			$$->setDataType($1->getDataType());
+
+			if($1->getType() == "VARIABLE")
+				$$->setDataType($1->getDataType());
+			else
+				$$->setDataType("INVALID");
 			
-			//table->insert($1);
 			cout << "variable : ID" << endl;
-			
 		}
 
 		| ID LTHIRD expression RTHIRD 
@@ -716,37 +732,44 @@ variable : ID
 				string errorMsg = "'" + $1->getName() + "' is not an array";
 				yyerror(errorMsg);
 			}
-			if($3->getDataType() != "INT"){
+			if($3->getDataType() != "INT") {
 				yyerror("Array subscript is not an integer");
 			}
 
 			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-			ParseTree* lthird = new ParseTree("LTHIRD : [" , @2.last_line, 0);
-			ParseTree* rthird = new ParseTree("RTHIRD : ]" , @4.last_line, 0);
+			ParseTree* lthird = new ParseTree("LSQUARE : [" , @2.last_line, 0);
+			ParseTree* rthird = new ParseTree("RSQUARE : ]" , @4.last_line, 0);
 			
 			id->addSibling(lthird);
 			lthird->addSibling($3);
 			$3->addSibling(rthird);
 			
-			$$ = new ParseTree("variable : ID LTHIRD expression RTHIRD", 
+			$$ = new ParseTree("variable : ID LSQUARE expression RSQUARE", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
-			$$->setDataType($1->getDataType());
+			
+			if($1->getType() == "ARRAY")
+				$$->setDataType($1->getDataType());
+			else
+				$$->setDataType("INVALID");
 
-			//table->insert($1);
-			cout << "variable : ID LTHIRD expression RTHIRD" << endl;
+			cout << "variable : ID LSQUARE expression RSQUARE" << endl;
 		}
 		;
 	 
 expression : 
 		logic_expression
 		{
+			if(expOperation && $1->getDataType() == "VOID")
+				yyerror("Void cannot be used in expression");
+			
 			$$ = new ParseTree("expression : logic_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
 			$$->setDataType($1->getDataType());
 			
 			cout << "expression : logic_expression" << endl;
+			expOperation = false;
 		}
 
 		| variable ASSIGNOP logic_expression
@@ -769,6 +792,7 @@ expression :
 			$$->setDataType($1->getDataType());
 			
 			cout << "expression : variable ASSIGNOP logic_expression" << endl;
+			expOperation = false;
 		} 	
 		;
 			
@@ -796,6 +820,7 @@ logic_expression :
 			$$->setDataType("INT");
 			
 			cout << "logic_expression : rel_expression LOGICOP rel_expression" << endl;
+			expOperation = true;
 		} 	
 		;
 			
@@ -823,6 +848,7 @@ rel_expression	:
 			$$->setDataType("INT");
 			
 			cout << "rel_expression : simple_expression RELOP simple_expression" << endl;
+			expOperation = true;
 		}	
 		;
 				
@@ -850,6 +876,7 @@ simple_expression :
 			$$->setDataType(operationDataType($1, $3));
 
 			cout << "simple_expression : simple_expression ADDOP term" << endl;
+			expOperation = true;
 		} 
 		;
 					
@@ -882,8 +909,13 @@ term :	unary_expression
 			}
 			else
 				$$->setDataType(type);
+
+			if(devidedByZero($2)) {
+				yyerror("Warning: division by zero i=0f=1Const=0");
+			}
 			
 			cout << "term :	term MULOP unary_expression" << endl;
+			expOperation = true;
 		}
 		;
 
@@ -900,6 +932,7 @@ unary_expression :
 			$$->setDataType($1->getDataType());
 			
 			cout << "unary_expression : ADDOP unary_expression" << endl;
+			expOperation = true;
 		}
 
 		| NOT unary_expression 
@@ -914,6 +947,7 @@ unary_expression :
 			$$->setDataType($2->getDataType());
 			
 			cout << "unary_expression : NOT unary_expression" << endl;
+			expOperation = true;
 		}
 
 		| factor 
@@ -938,30 +972,40 @@ factor	:
 			cout << "factor : variable" << endl;
 		}
 
-		| ID LPAREN argument_list RPAREN
+		| ID 
 		{
-			if(!declared($1)){
-				string errorMsg = "Undeclared function '" + $1->getName() + "'";
+			funcParams = $1->getFunctionParams();
+			if(funcParams) 
+				funcParams->moveToHead();
+			sinfo = $1;
+		}
+		LPAREN argument_list RPAREN
+		{
+			if(!declared(sinfo)){
+				string errorMsg = "Undeclared function '" + sinfo->getName() + "'";
 				yyerror(errorMsg);
 			}
 			
+			if(funcParams && !funcParams->lastParam()){
+				yyerror("Too few arguments to function '" + sinfo->getName() + "'");
+			}
 
-			ParseTree* id = new ParseTree("ID : " + $1->getName(), @1.last_line, 0);
-			ParseTree* lparen = new ParseTree("LPAREN : (" , @2.last_line, 0);
-			ParseTree* rparen = new ParseTree("RPAREN : )" , @4.last_line, 0);
+			ParseTree* id = new ParseTree("ID : " + sinfo->getName(), @1.last_line, 0);
+			ParseTree* lparen = new ParseTree("LPAREN : (" , @3.last_line, 0);
+			ParseTree* rparen = new ParseTree("RPAREN : )" , @5.last_line, 0);
 			
 			id->addSibling(lparen);
-			lparen->addSibling($3);
-			$3->addSibling(rparen);
+			lparen->addSibling($4);
+			$4->addSibling(rparen);
 			
 			$$ = new ParseTree("factor : ID LPAREN argument_list RPAREN", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild(id);
-			$$->setDataType($1->getDataType());
+			$$->setDataType(sinfo->getDataType());
 			
 
 			cout << "factor : ID LPAREN argument_list RPAREN" << endl;
-			
+			resetFuncCall();
 		}
 
 		| LPAREN expression RPAREN
@@ -982,6 +1026,8 @@ factor	:
 
 		| CONST_INT
 		{
+			
+			
 			ParseTree* const_int = new ParseTree("CONST_INT : " + $1->getName() , @1.last_line, 0);
 			
 			$$ = new ParseTree("factor : CONST_INT", 
@@ -989,6 +1035,7 @@ factor	:
 			$$->addLeftChild(const_int);
 			$$->setDataType("INT");
 
+			constantNum = stoi($1->getName());
 			cout << "factor : CONST_INT" << endl;
 		}
 
@@ -1001,6 +1048,7 @@ factor	:
 			$$->addLeftChild(const_float);
 			$$->setDataType("FLOAT");
 
+			constantNum = stoi($1->getName());
 			cout << "factor : CONST_FLOAT" << endl;
 		}
 
@@ -1016,6 +1064,7 @@ factor	:
 			$$->setDataType($1->getDataType());
 
 			cout << "factor : variable INCOP" << endl;
+			expOperation = true;
 		}
 
 		| variable DECOP
@@ -1030,6 +1079,7 @@ factor	:
 			$$->setDataType($1->getDataType());
 			
 			cout << "factor : variable DECOP" << endl;
+			expOperation = true;
 		}
 		;
 	
@@ -1046,6 +1096,9 @@ argument_list :
 arguments : 
 		arguments COMMA logic_expression
 		{
+			if(sinfo->getType()=="FUNCTION")
+				checkFunctionCall($3->getDataType());
+			
 			ParseTree* comma = new ParseTree("COMMA : ," , @2.last_line, 0);
 			
 			$1->addSibling(comma);
@@ -1060,6 +1113,9 @@ arguments :
 
 		| logic_expression
 		{
+			if(sinfo->getType()=="FUNCTION")
+				checkFunctionCall($1->getDataType());
+			
 			$$ = new ParseTree("arguments : logic_expression", 
 									@$.first_line, @$.last_line);
 			$$->addLeftChild($1);
@@ -1072,6 +1128,9 @@ arguments :
 %%
 int main(int argc,char *argv[])
 {
+	string LOG_FILE = "2005036_log.txt";
+	string ERROR_FILE = "2005036_error.txt";
+	string TREE_FILE = "2005036_parsetree.txt";
 
 	if((fp=fopen(argv[1],"r"))==NULL)
 	{
@@ -1079,9 +1138,9 @@ int main(int argc,char *argv[])
 		exit(1);
 	}
 
-	log_out.open(argv[2]);
-	tree_out.open(argv[3]);
-	error_out.open(argv[4]);
+	log_out.open(LOG_FILE);
+	tree_out.open(TREE_FILE);
+	error_out.open(ERROR_FILE);
 
 	streambuf* coutBuffer = cout.rdbuf();
 	cout.rdbuf(log_out.rdbuf());
@@ -1118,12 +1177,16 @@ string operationDataType(ParseTree* oparand1, ParseTree* oparand2) {
 		return "INT";
 }
 
-void checkVoidVariable(SymbolInfo* variable){
+bool voidVariable(SymbolInfo* variable){
 	if(dataType == "VOID"){
 		string errorMsg = "Variable or field '" + variable->getName() + 
 							"' declared void";
 		yyerror(errorMsg);
+
+		return true;
 	}
+
+	return false;
 }
 
 void insertVariable(SymbolInfo* symbolInfo, string type) {
@@ -1147,17 +1210,18 @@ void insertVariable(SymbolInfo* symbolInfo, string type) {
 	}
 }
 
-void insertFunction(SymbolInfo* symbolInfo, string returnType){
-	
+void insertFunction(SymbolInfo* symbolInfo, string returnType, int line){
+
 	if(table->insert(symbolInfo)) {
 		symbolInfo->setDataType(returnType);
 		symbolInfo->setType("FUNCTION");
 		symbolInfo->setFunctionParam(funcParams);
 	}
 	else if(symbolInfo->getType() != "FUNCTION") {
-		yyerror("'" + symbolInfo->getName()  + "' redeclared as different kind of symbol");
+		yyerror("'" + symbolInfo->getName()  + "' redeclared as different kind of symbol", line);
 	}
-	
+
+	funcParams = nullptr;
 }
 
 bool checkFuncDefination(SymbolInfo* func, string returnType) {
@@ -1202,4 +1266,41 @@ bool checkFuncDefination(SymbolInfo* func, string returnType) {
 		}
 		return true;
 	}
+}
+
+
+void checkFunctionCall(string calledType){
+	count++;
+
+	if(funcParams == nullptr){
+		yyerror("Too many arguments to function '" + sinfo->getName() + "'");
+		return;
+	}
+
+	SymbolInfo* param = funcParams->nextParam();
+	if(param != nullptr) {
+		if(!matchType(param->getDataType(), calledType)) {
+			yyerror("Type mismatch for argument " + to_string(count) + 
+				" of '" + sinfo->getName() + "'");
+		}
+	}
+	else{
+		yyerror("Too many arguments to function '" + sinfo->getName() + "'");
+	}
+}
+
+void resetFuncCall(){
+	sinfo = nullptr;
+	funcParams = nullptr;
+	count = 0;
+}
+
+bool matchType(string t1, string t2) {
+	return (t1 == t2) || (t1 == "FLOAT" && t2 == "INT");
+}
+
+bool devidedByZero(SymbolInfo* operand) {
+	return ((operand->getName() == "%") || (operand->getName() == "/")) &&
+				(constantNum == 0);
+
 }
